@@ -5,3 +5,7 @@ __pycache__/
 .streamlit/secrets.toml
 notebooks/*.html
 notebooks/*.pdf
+
+# Cached ENTSO-E download. Re-created by the notebook; too big and too
+# re-downloadable to belong in the repository.
+data/*.parquet
