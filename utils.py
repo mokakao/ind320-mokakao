@@ -105,36 +105,51 @@ def flow_countries() -> list[str]:
 def reservoir_controls() -> tuple[str, int, int]:
     """Draw the controls both reservoir pages use, and remember the choices.
 
-    The widgets are given keys, so Streamlit keeps their values in
-    st.session_state. That means the area type and the interval picked on the
-    table page are still set when you move to the plot page - without it, every
-    page would start over from the default, which is annoying to use.
+    The choices are kept in st.session_state under keys of my own, and handed
+    back to the widgets as explicit defaults. The obvious alternative - giving
+    the widgets a `key` and letting Streamlit remember them - does not survive
+    moving between pages: widget state belongs to the page that drew the
+    widget, so switching pages wipes it, and the slider comes back as a plain
+    single-value slider instead of a range. Unpacking that into two years then
+    fails with a TypeError on whichever page you left.
     """
     oldest, newest = available_years()
     years = list(range(oldest, newest + 1))
+
+    area_codes = list(nve.AREA_TYPES)
+
+    # Remembered choices, with the defaults used on a first visit.
+    remembered_type = st.session_state.get("chosen_area_type", area_codes[0])
+    remembered_range = st.session_state.get("chosen_years", (newest - 4, newest))
+
+    # Guard against anything stale: the API gains a year every week, and a
+    # remembered value from an older session must still be a valid option.
+    if remembered_type not in area_codes:
+        remembered_type = area_codes[0]
+    if (
+        not isinstance(remembered_range, tuple)
+        or len(remembered_range) != 2
+        or not all(year in years for year in remembered_range)
+    ):
+        remembered_range = (newest - 4, newest)
 
     with st.sidebar:
         st.markdown("### Data selection")
 
         area_type = st.radio(
             "Area type",
-            options=list(nve.AREA_TYPES),
+            options=area_codes,
+            index=area_codes.index(remembered_type),
             format_func=lambda code: nve.AREA_TYPES[code],
-            key="area_type",
             help="Norway as a whole, the five price areas, or the watercourse areas",
         )
 
-        # The default is set in session_state rather than passed as `value`.
-        # Giving a widget both a key and a default value makes Streamlit warn
-        # that the two could disagree, and the first run would fight the
-        # remembered choice.
-        if "year_range" not in st.session_state:
-            st.session_state["year_range"] = (newest - 4, newest)
-
+        # A tuple as `value` is what makes this a range slider with two handles
+        # rather than a single one.
         first_year, last_year = st.select_slider(
             "Download interval",
             options=years,
-            key="year_range",
+            value=remembered_range,
             help="Only these years are downloaded from the API",
         )
 
@@ -142,6 +157,10 @@ def reservoir_controls() -> tuple[str, int, int]:
             f"Downloading {last_year - first_year + 1} of "
             f"{len(years)} available years ({oldest}-{newest})."
         )
+
+    # Store the choices so the other page starts where this one left off.
+    st.session_state["chosen_area_type"] = area_type
+    st.session_state["chosen_years"] = (first_year, last_year)
 
     return area_type, first_year, last_year
 
