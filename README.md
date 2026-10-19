@@ -5,7 +5,9 @@ Mohammad el Meziani · IND320 Data to decision, autumn 2026
 A small dashboard about Norwegian hydropower: how full the reservoirs are, and
 how much power is flowing across the cables to Denmark, Germany and England.
 
-## ▶ Screencast
+## ▶ Screencasts
+
+**Part 2:** https://www.youtube.com/watch?v=VRHKimh_U80
 
 **Part 1:** https://nmbu.cloud.panopto.eu/Panopto/Pages/Viewer.aspx?id=0da9ddba-20d8-4a0b-8e05-b4d301405fce
 
