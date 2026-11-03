@@ -16,26 +16,29 @@ st.set_page_config(
 )
 
 st.title("💧 Norwegian reservoirs and cross-border power")
-st.subheader("IND320 project work, part 2 - data sources")
+st.subheader("IND320 project work, part 3 - data quality")
 
 st.markdown(
     """
-This app pulls two live data sources together: how full the Norwegian
-hydropower reservoirs are, and how much power is flowing across the cables to
-Denmark, Germany and England.
+Three data sources about Norwegian hydropower: how full the reservoirs are,
+how much power crosses the cables to Denmark, Germany and England, and what the
+weather has been doing over each region.
 
 **Use the menu in the sidebar:**
 
 | Page | Content |
 | --- | --- |
 | **Home** | This page |
-| **Reservoir table** | One row per area, with a sparkline per series |
-| **Reservoir plots** | The same data as lines, one per area |
-| **Power flow** | Exchange with the neighbours, from MongoDB |
+| **Reservoirs** | The weekly statistics, as a table and as plots |
+| **Power flow** | Exchange with the neighbours |
+| **Weather** | Download ERA5 weather for the selected area |
+| **Decomposition** | STL and a spectrogram of the reservoir filling |
+| **Outliers** | Control limits on rainfall, and LOF anomalies in temperature |
 | **About** | The data sources and how the pipeline fits together |
 
-Nothing here reads a file. The reservoir pages call NVE's API directly, and the
-power flow page reads a MongoDB database filled by the notebook.
+The sidebar selector is shared: whichever area you pick there is the one every
+page works on, so the weather and the reservoir levels always refer to the same
+place.
 """
 )
 
