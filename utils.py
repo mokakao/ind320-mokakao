@@ -205,8 +205,20 @@ def load_weather(area_type: str, area_number: int, year: int, n_points: int) -> 
     points = regions.sample_points(shapes, n=n_points)
     cells = regions.to_era5_grid(points)
 
-    hourly = weather.fetch(cells, f"{year}-01-01", f"{year}-12-31")
+    hourly = weather.fetch(cells, f"{year}-01-01", last_day_of(year))
     return weather.regional_average(hourly)
+
+
+def last_day_of(year: int) -> str:
+    """The last date the ERA5 archive will answer for, inside a given year.
+
+    The archive stops at yesterday: asking for 31 December of the current year
+    comes back as `400 Parameter 'end_date' is out of allowed range`. So the
+    current year is cut short at yesterday and every earlier year runs to its
+    real end.
+    """
+    yesterday = pd.Timestamp.today().normalize() - pd.Timedelta(days=1)
+    return min(pd.Timestamp(f"{year}-12-31"), yesterday).strftime("%Y-%m-%d")
 
 
 def daily_weather(hourly: pd.DataFrame) -> pd.DataFrame:
