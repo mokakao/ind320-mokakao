@@ -43,8 +43,15 @@ ERA5_STEP = 0.25
 
 
 def load_price_areas() -> gpd.GeoDataFrame:
-    """The five electricity price areas, as NO1 ... NO5."""
-    areas = gpd.read_file(SHAPE_DIR / "Budomrader.shp")
+    """The five electricity price areas, as NO1 ... NO5.
+
+    Returned in degrees rather than the UTM33 the shapefile ships in. Open-Meteo
+    wants degrees, and so does any plot that also shows the sampled points -
+    drawing a polygon in metres on the same axes as points in degrees puts them
+    in two different worlds, with the points collapsing into a dot somewhere off
+    the coast. Sampling converts back to metres internally where it matters.
+    """
+    areas = gpd.read_file(SHAPE_DIR / "Budomrader.shp").to_crs(DEGREES)
     # The column holds "NO 1" with a space; the API data and the rest of the
     # project use "NO1", so the space goes.
     areas["area"] = areas["budomr"].str.replace(" ", "", regex=False)
@@ -58,7 +65,7 @@ def load_nve_regions(merge_to_vass: bool = False) -> gpd.GeoDataFrame:
     statistics actually report on, by dissolving the pairs into one polygon
     each.
     """
-    regions = gpd.read_file(SHAPE_DIR / "NVE_Region.shp")
+    regions = gpd.read_file(SHAPE_DIR / "NVE_Region.shp").to_crs(DEGREES)
     regions = regions.rename(columns={"REGION": "region", "REGIONNAVN": "name"})
 
     if not merge_to_vass:
