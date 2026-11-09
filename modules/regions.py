@@ -77,6 +77,20 @@ def load_nve_regions(merge_to_vass: bool = False) -> gpd.GeoDataFrame:
     return merged[["area", "geometry"]].sort_values("area").reset_index(drop=True)
 
 
+def load_country() -> gpd.GeoDataFrame:
+    """Norway as a single polygon.
+
+    The five NVE regions dissolved into one. Needed because sampling happens
+    per polygon with the same number of points each: three separate areas of
+    very different size would get the same thousand points, so the smallest
+    would end up with three times the density of the largest and the country
+    average would lean south. One polygon means one even spread.
+    """
+    whole = gpd.read_file(SHAPE_DIR / "NVE_Region.shp").to_crs(DEGREES)
+    whole["area"] = "NO"
+    return whole.dissolve(by="area").reset_index()[["area", "geometry"]]
+
+
 def sample_points(areas: gpd.GeoDataFrame, n: int = 1000, seed: int = 320) -> gpd.GeoDataFrame:
     """Scatter n random points inside each area.
 

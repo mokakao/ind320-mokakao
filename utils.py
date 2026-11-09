@@ -200,15 +200,7 @@ def load_weather(area_type: str, area_number: int, year: int, n_points: int) -> 
     """
     from modules import regions, weather
 
-    if area_type == "EL":
-        shapes = regions.load_price_areas()
-        shapes = shapes[shapes["area"] == f"NO{area_number}"]
-    else:
-        shapes = regions.load_nve_regions(merge_to_vass=True)
-        if area_type == "VASS":
-            shapes = shapes[shapes["area"] == f"VASS{area_number}"]
-        # "Norway as a whole" has no polygon of its own, so all three
-        # watercourse areas together stand in for it.
+    shapes = area_polygon(area_type, area_number)
 
     points = regions.sample_points(shapes, n=n_points)
     cells = regions.to_era5_grid(points)
@@ -230,3 +222,23 @@ def daily_weather(hourly: pd.DataFrame) -> pd.DataFrame:
             "temperature": indexed["temperature_2m"].resample("D").mean(),
         }
     )
+
+
+def area_polygon(area_type: str, area_number: int):
+    """The polygon for one area, whichever kind of area it is.
+
+    Shared by the weather page and the loader so the map and the download can
+    never disagree about which shape they mean.
+    """
+    from modules import regions
+
+    if area_type == "EL":
+        shapes = regions.load_price_areas()
+        return shapes[shapes["area"] == f"NO{area_number}"]
+    if area_type == "VASS":
+        shapes = regions.load_nve_regions(merge_to_vass=True)
+        return shapes[shapes["area"] == f"VASS{area_number}"]
+    # Norway as a whole: one dissolved polygon, so the sampling stays even
+    # instead of giving the small southern areas three times the density of
+    # the large northern one.
+    return regions.load_country()

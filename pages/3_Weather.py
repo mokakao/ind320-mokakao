@@ -15,8 +15,9 @@ the same place.
 import matplotlib.pyplot as plt
 import streamlit as st
 
-from modules import nve, regions
-from utils import area_label, daily_weather, load_areas, load_weather, reservoir_controls
+from modules import regions
+from utils import (area_label, area_polygon, daily_weather, load_areas,
+                   load_weather, reservoir_controls)
 
 st.set_page_config(page_title="Weather - IND320", page_icon="🌦️", layout="wide")
 
@@ -51,13 +52,7 @@ with left:
 
     # Show the cost before anyone pays it. The points are cheap to generate;
     # it is the API call that takes time.
-    if area_type == "EL":
-        shapes = regions.load_price_areas()
-        shapes = shapes[shapes["area"] == f"NO{area_number}"]
-    else:
-        shapes = regions.load_nve_regions(merge_to_vass=True)
-        if area_type == "VASS":
-            shapes = shapes[shapes["area"] == f"VASS{area_number}"]
+    shapes = area_polygon(area_type, area_number)
 
     cells = regions.to_era5_grid(regions.sample_points(shapes, n=n_points))
     batches = -(-len(cells) // 60)
