@@ -102,28 +102,27 @@ def flow_countries() -> list[str]:
 
 # --- Shared sidebar --------------------------------------------------------
 
-def reservoir_controls() -> tuple[str, int, int]:
-    """Draw the controls both reservoir pages use, and remember the choices.
+def reservoir_controls(with_area: bool = False) -> tuple:
+    """Draw the controls the pages share, and remember the choices.
 
-    The choices are kept in st.session_state under keys of my own, and handed
-    back to the widgets as explicit defaults. The obvious alternative - giving
-    the widgets a `key` and letting Streamlit remember them - does not survive
-    moving between pages: widget state belongs to the page that drew the
-    widget, so switching pages wipes it, and the slider comes back as a plain
-    single-value slider instead of a range. Unpacking that into two years then
-    fails with a TypeError on whichever page you left.
+    The choices are kept in st.session_state under keys of my own and handed
+    back to the widgets as explicit defaults. Giving the widgets a `key` and
+    letting Streamlit remember them does not survive moving between pages:
+    widget state belongs to the page that drew it, so the range slider comes
+    back as a single-value one and unpacking it fails.
+
+    with_area adds a selector for one specific area within the chosen type.
+    The weather page needs it, because Open-Meteo is asked for one region at a
+    time, and the task wants that choice tied to the reservoir selector rather
+    than being a separate control of its own.
     """
     oldest, newest = available_years()
     years = list(range(oldest, newest + 1))
-
     area_codes = list(nve.AREA_TYPES)
 
-    # Remembered choices, with the defaults used on a first visit.
     remembered_type = st.session_state.get("chosen_area_type", area_codes[0])
     remembered_range = st.session_state.get("chosen_years", (newest - 4, newest))
 
-    # Guard against anything stale: the API gains a year every week, and a
-    # remembered value from an older session must still be a valid option.
     if remembered_type not in area_codes:
         remembered_type = area_codes[0]
     if (
@@ -144,8 +143,6 @@ def reservoir_controls() -> tuple[str, int, int]:
             help="Norway as a whole, the five price areas, or the watercourse areas",
         )
 
-        # A tuple as `value` is what makes this a range slider with two handles
-        # rather than a single one.
         first_year, last_year = st.select_slider(
             "Download interval",
             options=years,
@@ -158,10 +155,27 @@ def reservoir_controls() -> tuple[str, int, int]:
             f"{len(years)} available years ({oldest}-{newest})."
         )
 
-    # Store the choices so the other page starts where this one left off.
+        area_number = None
+        if with_area:
+            data = load_reservoirs(first_year, last_year)
+            numbers = nve.area_numbers(data, area_type)
+            areas = load_areas()
+            remembered_number = st.session_state.get("chosen_area_number")
+            index = numbers.index(remembered_number) if remembered_number in numbers else 0
+            area_number = st.selectbox(
+                "Area",
+                options=numbers,
+                index=index,
+                format_func=lambda n: area_label(areas, area_type, n),
+                help="Which single area the weather is downloaded for",
+            )
+            st.session_state["chosen_area_number"] = area_number
+
     st.session_state["chosen_area_type"] = area_type
     st.session_state["chosen_years"] = (first_year, last_year)
 
+    if with_area:
+        return area_type, first_year, last_year, area_number
     return area_type, first_year, last_year
 
 
@@ -169,3 +183,50 @@ def area_label(areas: pd.DataFrame, area_type: str, area_number: int) -> str:
     """Pretty name for one area, for example 'NO 2' instead of 'EL 2'."""
     match = areas[(areas["area_type"] == area_type) & (areas["area_number"] == area_number)]
     return match["name"].iloc[0] if len(match) else f"{area_type} {area_number}"
+
+
+# --- Weather, from Open-Meteo ----------------------------------------------
+
+@st.cache_data(ttl=CACHE_SECONDS, show_spinner=False)
+def load_weather(area_type: str, area_number: int, year: int, n_points: int) -> pd.DataFrame:
+    """Hourly ERA5 weather averaged over one area, for one year.
+
+    Cached on every argument, so the slow part only runs when something
+    actually changes. The point count is a control rather than a constant:
+    the notebook uses a thousand points per region, but a Streamlit page that
+    takes several minutes to answer is not a page anyone will use, and a
+    couple of hundred points already land in enough grid cells to give
+    essentially the same average.
+    """
+    from modules import regions, weather
+
+    if area_type == "EL":
+        shapes = regions.load_price_areas()
+        shapes = shapes[shapes["area"] == f"NO{area_number}"]
+    else:
+        shapes = regions.load_nve_regions(merge_to_vass=True)
+        if area_type == "VASS":
+            shapes = shapes[shapes["area"] == f"VASS{area_number}"]
+        # "Norway as a whole" has no polygon of its own, so all three
+        # watercourse areas together stand in for it.
+
+    points = regions.sample_points(shapes, n=n_points)
+    cells = regions.to_era5_grid(points)
+
+    hourly = weather.fetch(cells, f"{year}-01-01", f"{year}-12-31")
+    return weather.regional_average(hourly)
+
+
+def daily_weather(hourly: pd.DataFrame) -> pd.DataFrame:
+    """Daily precipitation totals and mean temperature.
+
+    Hourly rainfall is mostly zeros with occasional spikes, which is hard to
+    read and hard to do statistics on. Daily totals are the natural unit.
+    """
+    indexed = hourly.set_index("time")
+    return pd.DataFrame(
+        {
+            "precipitation": indexed["precipitation"].resample("D").sum(),
+            "temperature": indexed["temperature_2m"].resample("D").mean(),
+        }
+    )

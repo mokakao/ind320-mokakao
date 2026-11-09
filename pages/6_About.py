@@ -1,7 +1,7 @@
-"""Page 5: notes on the data, the pipeline and what is coming next.
+"""Last page: notes on the data, the pipeline and what is coming next.
 
-This was page four in part 1. The task asks for the new two-column page to sit
-there instead, so everything that was here has moved one step down.
+It keeps sliding down the menu as pages are added in front of it, which is
+where documentation belongs.
 """
 
 import streamlit as st
@@ -15,7 +15,7 @@ st.title("ℹ️ About the data and the project")
 
 st.markdown(
     """
-### Two data sources
+### Three data sources
 
 **Reservoir levels** come from NVE's *Magasinstatistikk* API. It publishes how
 full the Norwegian hydropower reservoirs are, one measurement per area per
@@ -28,6 +28,13 @@ and calls the API directly, so the app is never out of date.
 reports the physical flow on every interconnector in Europe every 15 minutes.
 The app covers the three cables out of price area NO2: Skagerrak to Denmark,
 NordLink to Germany and North Sea Link to England.
+
+**Weather** comes from Open-Meteo's ERA5 reanalysis, which can answer for any
+coordinate because it is a model corrected against observations rather than a
+set of measurements. To ask for the weather *in* a region, the region's
+polygon is read from a shapefile exported by hand from
+[NVE Atlas](https://atlas.nve.no), random points are scattered inside it, and
+those points are snapped to the ERA5 grid so each cell is only requested once.
 
 ### How the two fit together
 
@@ -44,6 +51,7 @@ the reservoir levels are heading.
 | Cassandra | local Docker container | the raw values, untouched |
 | Spark | locally | picks columns, averages to hourly |
 | MongoDB Atlas | cloud | the hourly values the app reads |
+| Open-Meteo | the app | hourly ERA5 weather per region |
 | Streamlit | cloud | this app |
 
 The detour through Cassandra and Spark is there because the deployed app cannot
@@ -75,10 +83,30 @@ The API returns Norwegian names. They are renamed on the way in:
 
 {chr(10).join(f"* `{no}` → `{en}`" for no, en in nve.COLUMN_NAMES.items())}
 
+### Finding what does not belong
+
+Part 3 added two ways of spotting odd values, and they answer different
+questions.
+
+**Control limits** ask whether a point is far from where the season says it
+should be. The seasonal shape is filtered out with a discrete cosine
+transform, robust limits are set around what is left, and the limits are then
+transformed back so they bend with the season. That last step matters: a
+flattened series is not something anyone can read, so the plot shows the real
+measurements with curved limits.
+
+**The Local Outlier Factor** asks whether a point sits in a sparser
+neighbourhood than its neighbours. Each day is described by its value and its
+change from the day before, so it catches abrupt swings and not only extremes.
+
+**STL and the spectrogram** are the other direction: instead of single odd
+points they describe the structure. STL splits the reservoir filling into a
+seasonal shape that drifts, a trend and a remainder; the spectrogram shows
+that the yearly cycle is present throughout rather than coming and going.
+
 ### What is coming
 
-* **Part 3:** cleaning, smoothing and looking for outliers and anomalies.
-* **Part 4:** forecasting and the finished visualisations.
+* **Part 4:** forecasting, machine learning and the finished visualisations.
 
 ### Credentials
 

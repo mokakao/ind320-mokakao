@@ -1,8 +1,11 @@
 # What the deployed Streamlit app needs. The notebook also uses pyspark,
-# cassandra-driver, entsoe-py and pyarrow, but those run locally only - the app
-# reads everything it shows from the NVE API and from MongoDB.
+# cassandra-driver, entsoe-py and pyarrow, but those run locally only.
 streamlit
 pandas
 matplotlib
 requests
 pymongo[srv]
+geopandas
+scikit-learn
+statsmodels
+scipy
