@@ -124,9 +124,16 @@ with spectrogram_tab:
     # A log scale on the period axis: the interesting rhythms span one year
     # down to a couple of months, and on a linear axis everything short is
     # squashed into the bottom centimetre.
-    figure.update_yaxes(type="log", title_text="Period (weeks)")
+    # Shapes on a log axis are positioned in log space, not data space. Passing
+    # y=52 puts the line at 10**52 and drags the autorange up to 10**54, which
+    # squashes the whole spectrogram into a sliver at the bottom. The range is
+    # pinned as well, so the plot cannot be rescaled by one stray value.
+    figure.update_yaxes(
+        type="log", title_text="Period (weeks)",
+        range=[np.log10(periods.min()), np.log10(periods.max())],
+    )
     figure.add_hline(
-        y=52, line=dict(color="white", width=1, dash="dash"),
+        y=np.log10(52), line=dict(color="white", width=1, dash="dash"),
         annotation_text="one year", annotation_position="top left",
         annotation_font_color="white",
     )
