@@ -7,9 +7,11 @@ how much power is flowing across the cables to Denmark, Germany and England.
 
 ## ▶ Screencasts
 
-**Part 2:** https://www.youtube.com/watch?v=VRHKimh_U80
+**Part 4:** *(link added in the notebook)*
 
-**Part 3:** *(link added in the notebook)*
+**Part 3:** https://youtu.be/nTH4P1zDXbU
+
+**Part 2:** https://www.youtube.com/watch?v=VRHKimh_U80
 
 **Part 1:** https://nmbu.cloud.panopto.eu/Panopto/Pages/Viewer.aspx?id=0da9ddba-20d8-4a0b-8e05-b4d301405fce
 
@@ -26,7 +28,8 @@ how much power is flowing across the cables to Denmark, Germany and England.
 | [NVE Magasinstatistikk API](https://biapi.nve.no/magasinstatistikk/swagger/index.html) | weekly reservoir levels per area | directly, on every page load |
 | [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/) | cross-border physical flow, 15 min | via MongoDB |
 | [Open-Meteo](https://open-meteo.com/en/docs) | hourly ERA5 weather per region | directly, on demand |
-| [NVE Atlas](https://atlas.nve.no) | region polygons | shapefiles in `data/shapefiles/` |
+| [Norges Bank](https://data.norges-bank.no/) | daily EUR and USD exchange rates | directly, on demand |
+| [NVE Atlas](https://atlas.nve.no) | region polygons | shapefiles in `data/shapefiles/`, converted to GeoJSON at runtime |
 
 The ENTSO-E data take a detour, because Streamlit Cloud cannot reach a database
 on my laptop:
@@ -39,18 +42,29 @@ ENTSO-E API  ->  Cassandra (local, raw 15-min)  ->  Spark (hourly average)  ->  
 
 | Path | What it is |
 | --- | --- |
-| [`notebooks/project_work_part3.ipynb`](notebooks/project_work_part3.ipynb) | The hand-in notebook for part 3 |
+| [`notebooks/project_work_part4.ipynb`](notebooks/project_work_part4.ipynb) | The hand-in notebook for part 4 |
+| [`notebooks/timezone_findings.md`](notebooks/timezone_findings.md) | The full timezone investigation behind §3 of that notebook |
+| [`notebooks/project_work_part3.ipynb`](notebooks/project_work_part3.ipynb) | Part 3 |
 | [`notebooks/project_work_part2.ipynb`](notebooks/project_work_part2.ipynb) | Part 2 |
 | [`notebooks/project_work_part1.ipynb`](notebooks/project_work_part1.ipynb) | Part 1, kept for the record |
-| `Home.py` | Front page of the app |
-| `pages/` | Reservoirs, power flow, weather, decomposition, outliers, about |
+| `Home.py` | Theme, menu and nothing else - the pages live in `views/` |
+| `views/` | The ten pages, grouped by Start / Data / Analysis / Info |
 | `modules/nve.py` | The NVE API |
 | `modules/entsoe_flows.py` | The ENTSO-E API |
 | `modules/storage.py` | Cassandra, Spark and MongoDB |
+| `modules/currency.py` | Norges Bank exchange rates |
 | `modules/regions.py` | The NVE Atlas shapefiles and point sampling |
+| `modules/geo.py` | Shapefiles to GeoJSON for the map |
 | `modules/weather.py` | Open-Meteo ERA5 |
-| `modules/quality.py` | DCT control limits, LOF, STL, spectrogram |
-| `utils.py` | Cached loading and the shared sidebar controls |
+| `modules/quality.py` | DCT control limits, LOF, STL, spectrogram, sliding window correlation |
+| `modules/forecast.py` | River SNARIMAX, with quantile prediction intervals |
+| `modules/theme.py` | One Plotly template and one palette for the whole app |
+| `utils.py` | Cached loading, source-failure handling and the shared sidebar |
+
+The pages are in `views/`, not `pages/`, on purpose: `pages/` is a name
+Streamlit treats specially and builds a flat menu from, in filename order.
+Part 4 has ten pages, so the menu is built explicitly in `Home.py` with
+`st.navigation` instead, grouped by what each page is for.
 
 ## Running it locally
 
