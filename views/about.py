@@ -9,13 +9,11 @@ import streamlit as st
 from modules import nve, storage
 from utils import load_areas
 
-st.set_page_config(page_title="About - IND320", page_icon="ℹ️", layout="wide")
-
-st.title("ℹ️ About the data and the project")
+st.title(":material/info: About the data and the project")
 
 st.markdown(
     """
-### Three data sources
+### Four data sources
 
 **Reservoir levels** come from NVE's *Magasinstatistikk* API. It publishes how
 full the Norwegian hydropower reservoirs are, one measurement per area per
@@ -36,7 +34,38 @@ polygon is read from a shapefile exported by hand from
 [NVE Atlas](https://atlas.nve.no), random points are scattered inside it, and
 those points are snapped to the ERA5 grid so each cell is only requested once.
 
-### How the two fit together
+**Exchange rates** come from Norges Bank's SDMX API, new in part 4. Norwegian
+power is sold across borders in euro, so what a full reservoir is worth in
+kroner depends on the rate as well as on the water. The API publishes on
+Norwegian business days only - no weekends and no public holidays - so the
+daily series has gaps that are not missing data but days on which no rate
+existed.
+
+### What part 4 changed
+
+**Every plot is now Plotly.** Part 3 drew with matplotlib, which produced
+pictures: correct, but you could not hover a line to read a value or zoom into
+a month. The whole app was converted, and the colours now come from one place,
+`modules/theme.py`, instead of being chosen again in every file.
+
+**The map.** The shapefiles that part 3 used only to find coordinates are now
+GeoJSON, drawn with outlines you can click. Clicking an area stores it, and
+every other page follows. It is drawn with folium rather than Plotly - the
+Plotly version rendered correctly but returned an empty selection on every
+click, because Streamlit's Plotly selection does not treat choropleth polygons
+as selectable points.
+
+**Forecasting.** `river.time_series.SNARIMAX` predicts the coming months'
+filling. River is an online learner, which fits a series that grows by one row
+every Wednesday. The defaults were chosen by a rolling-origin backtest rather
+than by taste, and the page can re-run that comparison.
+
+**Error handling** was the bonus task, and it was not chosen in the abstract:
+the NVE API stopped answering for a few minutes during development and every
+page came up as a red traceback. Now each source has a retry underneath and a
+readable message above, with a button that clears the cache and tries again.
+
+### How they fit together
 
 Reservoirs fill up with rain and snowmelt and empty when the power is used or
 sold. The flow data show how much is actually being sold abroad. Later parts of

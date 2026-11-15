@@ -13,6 +13,8 @@ In part 1 this file read a CSV. It now talks to the NVE API and to MongoDB
 instead; the CSV is gone.
 """
 
+import functools
+
 import pandas as pd
 import streamlit as st
 
@@ -23,8 +25,29 @@ from modules import nve, storage
 CACHE_SECONDS = 3600
 
 
+def guarded(source: str):
+    """Wrap a loader so an unreachable source stops the page politely.
+
+    Applied *outside* st.cache_data, so the cache still works normally and only
+    a call that actually goes out to the network can be intercepted. Every page
+    that calls one of these loaders is covered without a single try/except of
+    its own - which is the point, because the one page that forgot the
+    try/except would be the one that crashes.
+
+    `safe` is defined at the bottom of this file; the lookup happens when the
+    loader is called, not when it is decorated, so the order does not matter.
+    """
+    def wrap(loader):
+        @functools.wraps(loader)
+        def inner(*args, **kwargs):
+            return safe(loader, *args, source=source, **kwargs)
+        return inner
+    return wrap
+
+
 # --- Reservoirs, straight from the NVE API ---------------------------------
 
+@guarded("NVE")
 @st.cache_data(ttl=CACHE_SECONDS, show_spinner="Downloading from NVE...")
 def load_reservoirs(first_year: int, last_year: int) -> pd.DataFrame:
     """Download the reservoir statistics for a range of years.
@@ -36,12 +59,14 @@ def load_reservoirs(first_year: int, last_year: int) -> pd.DataFrame:
     return nve.fetch_reservoirs(first_year=first_year, last_year=last_year)
 
 
+@guarded("NVE")
 @st.cache_data(ttl=CACHE_SECONDS)
 def load_areas() -> pd.DataFrame:
     """The area definitions from the API, used for the labels in the app."""
     return nve.fetch_areas()
 
 
+@guarded("NVE")
 @st.cache_data(ttl=CACHE_SECONDS)
 def available_years() -> tuple[int, int]:
     """First and last ISO year the API has data for.
@@ -66,6 +91,7 @@ def _flow_collection():
     return storage.mongo_collection(st.secrets["mongo_uri"])
 
 
+@guarded("MongoDB")
 @st.cache_data(ttl=CACHE_SECONDS, show_spinner="Reading from MongoDB...")
 def load_flows(year: int) -> pd.DataFrame:
     """Hourly cross-border flows for one year.
@@ -88,12 +114,14 @@ def load_flows(year: int) -> pd.DataFrame:
     return flows.sort_values("timestamp").reset_index(drop=True)
 
 
+@guarded("MongoDB")
 @st.cache_data(ttl=CACHE_SECONDS)
 def flow_years() -> list[int]:
     """Which years are in MongoDB, newest first."""
     return sorted(_flow_collection().distinct("year"), reverse=True)
 
 
+@guarded("MongoDB")
 @st.cache_data(ttl=CACHE_SECONDS)
 def flow_countries() -> list[str]:
     """Which connections are in MongoDB."""
@@ -187,6 +215,7 @@ def area_label(areas: pd.DataFrame, area_type: str, area_number: int) -> str:
 
 # --- Weather, from Open-Meteo ----------------------------------------------
 
+@guarded("Open-Meteo")
 @st.cache_data(ttl=CACHE_SECONDS, show_spinner=False)
 def load_weather(area_type: str, area_number: int, year: int, n_points: int) -> pd.DataFrame:
     """Hourly ERA5 weather averaged over one area, for one year.
@@ -222,18 +251,28 @@ def last_day_of(year: int) -> str:
 
 
 def daily_weather(hourly: pd.DataFrame) -> pd.DataFrame:
-    """Daily precipitation totals and mean temperature.
+    """Collapse the hourly weather into one row per day.
 
     Hourly rainfall is mostly zeros with occasional spikes, which is hard to
-    read and hard to do statistics on. Daily totals are the natural unit.
+    read and hard to do statistics on. Daily is the natural unit - but not with
+    the same arithmetic for every variable: rain and snow are *amounts* and have
+    to be summed, temperature and wind are *states* and have to be averaged.
+    That mapping lives in weather.DAILY_RULES so the pages and the notebook
+    cannot disagree about it.
+
+    Columns that are missing from an older cached download are skipped rather
+    than raising, so a result cached before snowfall was added still renders.
     """
+    from modules import weather
+
     indexed = hourly.set_index("time")
-    return pd.DataFrame(
-        {
-            "precipitation": indexed["precipitation"].resample("D").sum(),
-            "temperature": indexed["temperature_2m"].resample("D").mean(),
-        }
-    )
+    columns = {}
+    for key, (api_name, how, _unit, _label) in weather.DAILY_RULES.items():
+        if api_name not in indexed.columns:
+            continue
+        resampled = indexed[api_name].resample("D")
+        columns[key] = resampled.sum() if how == "sum" else resampled.mean()
+    return pd.DataFrame(columns)
 
 
 def area_polygon(area_type: str, area_number: int):
@@ -254,3 +293,119 @@ def area_polygon(area_type: str, area_number: int):
     # instead of giving the small southern areas three times the density of
     # the large northern one.
     return regions.load_country()
+
+
+# --- Exchange rates, from Norges Bank --------------------------------------
+
+@guarded("Norges Bank")
+@st.cache_data(ttl=CACHE_SECONDS, show_spinner="Asking Norges Bank...")
+def load_rates(start: str, end: str, currencies: tuple[str, ...] = ("EUR", "USD")) -> pd.DataFrame:
+    """Daily exchange rates for a date range.
+
+    The currencies arrive as a tuple rather than a list because Streamlit hashes
+    the arguments to build the cache key, and a list is not hashable.
+    """
+    from modules import currency
+
+    return currency.fetch_rates(start, end, list(currencies))
+
+
+# --- Putting weekly and daily series on the same index ----------------------
+
+def weekly_from_daily(daily: pd.DataFrame) -> pd.DataFrame:
+    """Resample daily weather to the weeks the reservoir statistics use.
+
+    NVE publishes one row per ISO week, dated the Sunday that ends it - the
+    newest row as I write this is 2026-11-08, a Sunday. pandas' plain "W" rule
+    happens to mean "W-SUN", so the two line up without any offset, but the
+    rule is spelled out below rather than relied on silently.
+
+    Amounts are summed and states averaged, the same split as daily_weather
+    uses, so a weekly precipitation figure is millimetres that week rather than
+    a meaningless average of daily totals.
+    """
+    from modules import weather
+
+    columns = {}
+    for key in daily.columns:
+        if key not in weather.DAILY_RULES:
+            continue
+        how = weather.DAILY_RULES[key][1]
+        resampled = daily[key].resample("W-SUN")
+        columns[key] = resampled.sum() if how == "sum" else resampled.mean()
+    return pd.DataFrame(columns)
+
+
+# --- When a source is not there --------------------------------------------
+#
+# This is the bonus task from the assignment list, and it earned its place the
+# hard way: while part 4 was being built, biapi.nve.no stopped answering for a
+# couple of minutes, and every page that touched it came up as a red
+# `requests.exceptions.ReadTimeout` traceback with forty lines of Streamlit
+# internals under it. Correct, and useless to anybody who is not the author.
+#
+# Two layers deal with it. Lower down, modules/nve.py now retries a timeout
+# three times, because one timeout from that host usually means nothing. Up
+# here, anything that still fails is turned into a sentence that says which
+# source is missing, whether the fault is likely to be ours, and what to do
+# about it - plus a button that clears the cache and tries again.
+
+# Imported lazily inside the function: pymongo is a heavy import and the
+# currency and weather pages have no reason to pay for it.
+_SOURCE_HELP = {
+    "NVE": (
+        "the reservoir statistics",
+        "biapi.nve.no is slow or down. It is a public API with no status page "
+        "and no key, so there is nothing to check - it usually comes back "
+        "within a few minutes.",
+    ),
+    "MongoDB": (
+        "the stored cross-border flows",
+        "The database did not answer. On Streamlit Cloud this is usually the "
+        "free tier pausing a cluster that has been idle, which takes a moment "
+        "to wake.",
+    ),
+    "Open-Meteo": (
+        "the weather archive",
+        "Open-Meteo refused or timed out. The usual cause is the per-minute "
+        "volume limit - wait a minute, or ask for fewer sample points.",
+    ),
+    "Norges Bank": (
+        "the exchange rates",
+        "data.norges-bank.no did not answer.",
+    ),
+}
+
+
+def safe(loader, *args, source: str = "NVE", **kwargs):
+    """Call a loader, and stop the page politely if the source is unreachable.
+
+    Returns whatever the loader returns. If it raises a network or database
+    error, the page gets an explanation and a retry button instead of a
+    traceback, and then stops - `st.stop()` ends the script run cleanly, so
+    nothing below it tries to work with data that never arrived.
+
+    Programming errors are deliberately *not* caught. A KeyError in my own code
+    should still show its traceback; hiding it behind "the source is down"
+    would be worse than the crash.
+    """
+    import requests
+
+    try:
+        return loader(*args, **kwargs)
+    except Exception as error:                       # noqa: BLE001 - narrowed below
+        network = isinstance(error, (requests.RequestException, TimeoutError, OSError))
+        if not network and type(error).__module__.split(".")[0] != "pymongo":
+            raise
+
+        what, why = _SOURCE_HELP.get(source, (source, ""))
+        st.error(
+            f"**Could not reach {source}.** This page needs {what}.\n\n{why}",
+            icon=":material/cloud_off:",
+        )
+        with st.expander("The underlying error"):
+            st.code(f"{type(error).__name__}: {error}")
+        if st.button("Try again", icon=":material/refresh:", key=f"retry_{source}"):
+            st.cache_data.clear()
+            st.rerun()
+        st.stop()

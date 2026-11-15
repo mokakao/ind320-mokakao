@@ -186,3 +186,91 @@ def spectrogram(series: pd.Series, window: int = 104, overlap: int | None = None
     )
     return {"frequencies": frequencies, "times": times, "power": power,
             "window": window, "overlap": overlap}
+
+
+def sliding_window_correlation(
+    first: pd.Series,
+    second: pd.Series,
+    window: int = 12,
+    lag: int = 0,
+    centred: bool = True,
+) -> dict:
+    """Correlation between two series, computed locally in a moving window.
+
+    A single correlation over a whole series answers "do these two move
+    together", which for weather and reservoirs is not a useful question - of
+    course they do, both follow the year. The interesting question is *when*
+    they move together, and that is what a sliding window shows: one
+    correlation per position of a window of `window` points.
+
+    `lag` shifts `second` forward in time before correlating, so a positive lag
+    asks whether today's weather matches the reservoir level `lag` steps later.
+    That is the direction that matters here - rain takes time to reach a
+    reservoir, and snow takes until the melt.
+
+    The two series are aligned on their shared index first. Anything either of
+    them is missing is dropped, because `rolling.corr` on misaligned indexes
+    silently returns NaN for every window that straddles a gap, which looks
+    identical to "no correlation here".
+
+    Returns the correlation series, the two aligned inputs, and a summary.
+    """
+    joined = pd.concat(
+        {"first": first, "second": second.shift(-lag) if lag else second}, axis=1
+    ).dropna()
+
+    if len(joined) < window + 2:
+        raise ValueError(
+            f"Only {len(joined)} overlapping points after aligning the two series, "
+            f"which is not enough for a window of {window}."
+        )
+
+    correlation = (
+        joined["first"].rolling(window, center=centred, min_periods=window)
+        .corr(joined["second"])
+    )
+
+    finite = correlation.dropna()
+    summary = {
+        "n_windows": int(len(finite)),
+        "overall": float(joined["first"].corr(joined["second"])),
+        "mean": float(finite.mean()) if len(finite) else float("nan"),
+        "strongest": float(finite.max()) if len(finite) else float("nan"),
+        "weakest": float(finite.min()) if len(finite) else float("nan"),
+        "share_positive": float((finite > 0).mean()) if len(finite) else float("nan"),
+    }
+    if len(finite):
+        summary["strongest_at"] = finite.idxmax()
+        summary["weakest_at"] = finite.idxmin()
+
+    return {
+        "correlation": correlation,
+        "first": joined["first"],
+        "second": joined["second"],
+        "summary": summary,
+    }
+
+
+def best_lag(
+    first: pd.Series,
+    second: pd.Series,
+    lags: range,
+) -> pd.DataFrame:
+    """Overall correlation at each of a range of lags.
+
+    Used to answer "how long does it take" rather than "how strong is it": the
+    lag with the largest absolute correlation is an estimate of the delay
+    between a weather event and its effect on the reservoirs.
+    """
+    rows = []
+    for lag in lags:
+        aligned = pd.concat(
+            {"first": first, "second": second.shift(-lag) if lag else second}, axis=1
+        ).dropna()
+        rows.append({
+            "lag": lag,
+            "correlation": float(aligned["first"].corr(aligned["second"]))
+            if len(aligned) > 2 else float("nan"),
+            "n": int(len(aligned)),
+        })
+    return pd.DataFrame(rows)

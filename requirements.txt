@@ -2,10 +2,19 @@
 # cassandra-driver, entsoe-py and pyarrow, but those run locally only.
 streamlit
 pandas
-matplotlib
 requests
 pymongo[srv]
 geopandas
 scikit-learn
 statsmodels
 scipy
+
+# Part 4. Plotly replaced matplotlib everywhere, so matplotlib is gone from
+# this list; folium draws the one thing Plotly could not, a map whose polygons
+# report back which one was clicked. branca comes with folium but is imported
+# directly for the colour scale, so it is named here rather than relied on.
+plotly
+folium
+streamlit-folium
+branca
+river
