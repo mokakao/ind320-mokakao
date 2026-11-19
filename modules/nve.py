@@ -12,6 +12,8 @@ app: there is no way to ask the API for a date range, so the interval is
 applied right after the call, and the download itself is cached per interval.
 """
 
+import time
+
 import pandas as pd
 import requests
 
@@ -50,15 +52,36 @@ AREA_TYPES = {
 }
 
 
+ATTEMPTS = 3
+BACKOFF_SECONDS = 2
+
+
 def _get(endpoint: str) -> list[dict]:
     """GET one endpoint and return the decoded JSON.
 
     raise_for_status turns a 404 or a 500 into an exception instead of letting
     a half-broken response slip through into a DataFrame.
+
+    The retry is here because biapi.nve.no is genuinely unreliable: it returned
+    nothing within 60 seconds twice while this part was being written, then
+    answered in under a second a moment later. One timeout is not evidence that
+    the API is down, so a single attempt makes the whole app look broken when
+    it is not. Three attempts with a growing pause, and only then give up.
     """
-    response = requests.get(f"{BASE_URL}/{endpoint}", timeout=60)
-    response.raise_for_status()
-    return response.json()
+    last_error: Exception | None = None
+    for attempt in range(ATTEMPTS):
+        try:
+            response = requests.get(f"{BASE_URL}/{endpoint}", timeout=60)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as error:
+            last_error = error
+            if attempt < ATTEMPTS - 1:
+                time.sleep(BACKOFF_SECONDS * (attempt + 1))
+
+    raise requests.RequestException(
+        f"NVE Magasinstatistikk did not answer after {ATTEMPTS} attempts: {last_error}"
+    ) from last_error
 
 
 def fetch_areas() -> pd.DataFrame:
@@ -136,7 +159,7 @@ def area_numbers(df: pd.DataFrame, area_type: str) -> list[int]:
 def wide(df: pd.DataFrame, area_type: str, column: str = "fill_level") -> pd.DataFrame:
     """One column per area number, indexed by date.
 
-    This is the shape matplotlib and st.line_chart want when the radio button
+    This is the shape Plotly and st.line_chart want when the radio button
     asks for "all the areas of this type" - for example the fill level of NO1
     to NO5 as five lines in the same plot.
     """

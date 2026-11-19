@@ -1,0 +1,12 @@
+# The app's own colours, matching the Plotly template in modules/theme.py.
+#
+# Streamlit themes the chrome - sidebar, buttons, widgets - and Plotly themes
+# the plots. If only one of them is set the page ends up with a blue app and
+# grey charts, so the two palettes are deliberately the same values written in
+# two places. modules/theme.py is where they are explained.
+[theme]
+primaryColor = "#1b7fa8"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f5f8"
+textColor = "#1d2a33"
+font = "sans serif"

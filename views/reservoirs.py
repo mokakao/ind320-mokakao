@@ -6,14 +6,12 @@ menu for the three new analysis pages without the sidebar turning into a list
 of eight things.
 """
 
-import matplotlib.pyplot as plt
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
-from modules import nve
+from modules import nve, theme
 from utils import area_label, load_areas, load_reservoirs, reservoir_controls
-
-st.set_page_config(page_title="Reservoirs - IND320", page_icon="💧", layout="wide")
 
 st.title("💧 Reservoirs")
 
@@ -87,8 +85,6 @@ with plot_tab:
         key="plot_series",
     )
 
-    fig, ax = plt.subplots(figsize=(11, 4.5))
-
     if column == "All series (scaled)":
         # The five series use wildly different units - capacity is around
         # 87 TWh, fill level is between 0 and 1 - so on one axis you would see
@@ -96,12 +92,16 @@ with plot_tab:
         # shapes comparable.
         number = numbers[0]
         one = nve.one_area(data, area_type, number)
-        for name in one.columns:
-            low, high = one[name].min(), one[name].max()
-            scaled = (one[name] - low) / (high - low) if high > low else one[name] * 0 + 0.5
-            ax.plot(one.index, scaled, label=name, linewidth=1.5)
-        ax.set_ylabel("Scaled value (0-1)")
-        ax.set_title(f"All series for {area_label(areas, area_type, number)}, scaled")
+        scaled = one.apply(
+            lambda s: (s - s.min()) / (s.max() - s.min()) if s.max() > s.min()
+            else s * 0 + 0.5
+        )
+        figure = px.line(scaled, labels={"value": "Scaled value (0-1)", "index": "Date"})
+        theme.apply(
+            figure,
+            title=f"All series for {area_label(areas, area_type, number)}, scaled",
+            x="Date", y="Scaled value (0-1)",
+        )
         st.info(
             "The series use different units, so they are scaled to 0-1 over the "
             "period. Only the first area of the type is shown - pick a single "
@@ -109,17 +109,16 @@ with plot_tab:
         )
     else:
         wide = nve.wide(data, area_type, column)
-        for number in wide.columns:
-            ax.plot(wide.index, wide[number],
-                    label=area_label(areas, area_type, number), linewidth=1.5)
+        named = wide.rename(columns={n: area_label(areas, area_type, n) for n in wide.columns})
         unit = "TWh" if column.endswith("TWh") else "Share of capacity"
-        ax.set_ylabel(f"{column} ({unit})")
-        ax.set_title(f"{column} per area")
+        figure = px.line(named)
+        theme.apply(figure, title=f"{column} per area", x="Date", y=f"{column} ({unit})")
+        if not column.endswith("TWh"):
+            # fill_level and fill_level_change are shares, and nobody reads a
+            # reservoir as 0.734 full.
+            theme.percent_axis(figure)
 
-    ax.set_xlabel("Date")
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize="small", ncol=2, loc="best")
-    fig.autofmt_xdate()
-    fig.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
+    # Plotly's unified hover is what makes this better than the old static
+    # version: one tooltip listing every area at the week you point at, which
+    # is exactly the comparison the page exists for.
+    st.plotly_chart(figure, width="stretch")

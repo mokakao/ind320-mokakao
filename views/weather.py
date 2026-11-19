@@ -12,14 +12,14 @@ reservoir pages use, so the weather and the reservoir levels always refer to
 the same place.
 """
 
-import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
-from modules import regions
+from modules import regions, theme, weather as weather_module
 from utils import (area_label, area_polygon, daily_weather, load_areas,
                    load_weather, reservoir_controls)
-
-st.set_page_config(page_title="Weather - IND320", page_icon="🌦️", layout="wide")
 
 st.title("🌦️ Weather")
 
@@ -61,22 +61,42 @@ with left:
         f"{n_points} random points fall into **{len(cells)} ERA5 grid cells** "
         f"({1 - len(cells)/n_points:.0%} fewer requests). "
         f"That is {batches} batch{'es' if batches != 1 else ''}, "
-        f"roughly {batches * 25} seconds."
+        f"roughly {batches * 45} seconds."
     )
 
     fetch = st.button("Download weather", type="primary")
 
 with right:
     st.markdown("### The area")
-    fig, ax = plt.subplots(figsize=(4.5, 5.5))
-    shapes.plot(ax=ax, color="#dce7f2", edgecolor="#4a6fa5")
-    ax.scatter(cells["lon"], cells["lat"], s=cells["weight"] * 3,
-               color="#e67e22", alpha=0.7, edgecolor="white", linewidth=0.3)
-    ax.set_title(f"{name}: {len(cells)} grid cells", fontsize=10)
-    ax.set_axis_off()
-    fig.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
+    # The outline is drawn as a filled scatter path rather than a map layer:
+    # this is a diagram of where the requests go, not a map you navigate, and a
+    # basemap underneath would only compete with the dots.
+    figure = go.Figure()
+    for polygon in shapes.geometry:
+        pieces = polygon.geoms if polygon.geom_type == "MultiPolygon" else [polygon]
+        for piece in pieces:
+            lon, lat = piece.exterior.xy
+            figure.add_trace(go.Scatter(
+                x=list(lon), y=list(lat), mode="lines", fill="toself",
+                fillcolor="rgba(127,196,221,0.35)",
+                line=dict(color=theme.DEEP, width=1),
+                hoverinfo="skip", showlegend=False,
+            ))
+    figure.add_trace(go.Scatter(
+        x=cells["lon"], y=cells["lat"], mode="markers", showlegend=False,
+        marker=dict(size=cells["weight"] * 1.6 + 4, color=theme.AMBER, opacity=0.75,
+                    line=dict(color="white", width=0.6)),
+        customdata=cells["weight"],
+        hovertemplate="%{y:.2f} N, %{x:.2f} E<br>%{customdata} sampled points<extra></extra>",
+    ))
+    figure.update_layout(
+        title=f"{name}: {len(cells)} grid cells", height=430,
+        margin=dict(l=10, r=10, t=45, b=10),
+        xaxis=dict(visible=False),
+        # Equal aspect, or Norway comes out squashed sideways.
+        yaxis=dict(visible=False, scaleanchor="x", scaleratio=2.0),
+    )
+    st.plotly_chart(figure, width="stretch")
     st.caption("Dot size is how many of the sampled points fell in that cell, which is the weight used when averaging.")
 
 # --- The result ------------------------------------------------------------
@@ -101,25 +121,35 @@ st.success(
     "The other analysis pages read this.".replace(",", " ")
 )
 
-top, bottom = st.columns(2)
-top.metric("Mean temperature", f"{daily['temperature'].mean():.1f} °C")
-bottom.metric("Total precipitation", f"{daily['precipitation'].sum():.0f} mm")
+summary = st.columns(len(daily.columns))
+for column, key in zip(summary, daily.columns):
+    api_name, how, unit, label_text = weather_module.DAILY_RULES[key]
+    value = daily[key].sum() if how == "sum" else daily[key].mean()
+    column.metric(label_text, f"{value:,.1f} {unit}".replace(",", " "),
+                  help="Total over the year" if how == "sum" else "Average over the year")
 
-fig, (upper, lower) = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
-upper.plot(daily.index, daily["temperature"], linewidth=1, color="#c0392b")
-upper.set_ylabel("°C")
-upper.set_title(f"Daily mean temperature, {st.session_state['weather_label']}")
-upper.grid(alpha=0.3)
-
-lower.bar(daily.index, daily["precipitation"], width=1.0, color="#2b7bba")
-lower.set_ylabel("mm/day")
-lower.set_xlabel("Date")
-lower.set_title("Daily precipitation")
-lower.grid(alpha=0.3)
-
-fig.tight_layout()
-st.pyplot(fig)
-plt.close(fig)
+# One row per property, sharing the date axis. Amounts are drawn as bars and
+# states as lines - a line through daily rainfall suggests it rained
+# continuously between the spikes, which is exactly the wrong impression.
+keys = list(daily.columns)
+figure = make_subplots(rows=len(keys), cols=1, shared_xaxes=True, vertical_spacing=0.045)
+for row, key in enumerate(keys, start=1):
+    api_name, how, unit, label_text = weather_module.DAILY_RULES[key]
+    colour = theme.COLORWAY[(row - 1) % len(theme.COLORWAY)]
+    if how == "sum":
+        trace = go.Bar(x=daily.index, y=daily[key], name=label_text,
+                       marker=dict(color=colour, line_width=0))
+    else:
+        trace = go.Scatter(x=daily.index, y=daily[key], mode="lines", name=label_text,
+                           line=dict(color=colour, width=1.1))
+    figure.add_trace(trace, row=row, col=1)
+    figure.update_yaxes(title_text=f"{unit}", title_font_size=11, row=row, col=1)
+figure.update_xaxes(title_text="Date", row=len(keys), col=1)
+figure.update_layout(
+    height=200 * len(keys), showlegend=False, hovermode="x unified",
+    title=f"Daily weather, {st.session_state['weather_label']}", bargap=0,
+)
+st.plotly_chart(figure, width="stretch")
 
 with st.expander("Where these numbers come from"):
     st.markdown(

@@ -13,13 +13,12 @@ Cassandra of its own, which is the whole reason for that detour.
 
 import calendar
 
-import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
-from modules import entsoe_flows
+from modules import entsoe_flows, theme
 from utils import flow_countries, flow_years, load_flows
-
-st.set_page_config(page_title="Power flow - IND320", page_icon="🔌", layout="wide")
 
 st.title("🔌 Cross-border power flow")
 
@@ -56,21 +55,26 @@ with left:
         totals = chosen.groupby("direction")["mw"].sum() / 1_000_000
         totals = totals.reindex(["export", "import"]).fillna(0)
 
-        fig, ax = plt.subplots(figsize=(5, 5))
-        ax.pie(
-            totals,
-            labels=["Out of Norway", "Into Norway"],
-            # Pie charts are hard to read by area, so the share is written on
-            # each slice instead of being left to the eye.
-            autopct="%1.1f%%",
-            startangle=90,
-            colors=["#2b7bba", "#f0a202"],
-            wedgeprops={"edgecolor": "white"},
+        figure = go.Figure(
+            go.Pie(
+                labels=["Out of Norway", "Into Norway"],
+                values=list(totals),
+                # Pie charts are hard to read by area, so the share and the
+                # value are written on each slice instead of being left to the
+                # eye. Plotly also gives the exact TWh on hover.
+                textinfo="label+percent",
+                hovertemplate="%{label}<br>%{value:.2f} TWh<extra></extra>",
+                marker=dict(colors=[theme.WATER, theme.AMBER],
+                            line=dict(color="white", width=2)),
+                sort=False,
+                hole=0.35,
+            )
         )
-        ax.set_title(f"{country} ({entsoe_flows.CONNECTIONS_BY_COUNTRY[country]}), {year}")
-        ax.axis("equal")
-        st.pyplot(fig)
-        plt.close(fig)
+        figure.update_layout(
+            title=f"{country} ({entsoe_flows.CONNECTIONS_BY_COUNTRY[country]}), {year}",
+            height=380, margin=dict(l=10, r=10, t=50, b=10), showlegend=False,
+        )
+        st.plotly_chart(figure, width="stretch")
 
         net = totals["export"] - totals["import"]
         st.metric(
@@ -105,29 +109,30 @@ with right:
         selection = load_flows(year)
         selection = selection[selection["month"].isin(months)]
 
-        fig, ax = plt.subplots(figsize=(7, 5))
+        figure = go.Figure()
         # One line per cable and direction, so six lines when all three cables
         # have data. Imports are dashed so the pairs are easy to tell apart.
-        for (name, direction), group in selection.groupby(["country", "direction"]):
-            ax.plot(
-                group["timestamp"],
-                group["mw"],
-                label=f"{name} {direction}",
-                linewidth=0.9,
-                alpha=0.85,
-                linestyle="-" if direction == "export" else "--",
-            )
-
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Flow (MW, hourly average)")
-        ax.set_title(f"{', '.join(month_names[m] for m in months)} {year}")
-        ax.grid(alpha=0.3)
-        ax.legend(fontsize="x-small", ncol=2)
-        fig.autofmt_xdate()
-        fig.tight_layout()
-
-        st.pyplot(fig)
-        plt.close(fig)
+        for i, ((name, direction), group) in enumerate(
+            selection.groupby(["country", "direction"])
+        ):
+            figure.add_trace(go.Scatter(
+                x=group["timestamp"], y=group["mw"], mode="lines",
+                name=f"{name} {direction}",
+                line=dict(
+                    width=1.0,
+                    color=theme.COLORWAY[i % len(theme.COLORWAY)],
+                    dash="solid" if direction == "export" else "dash",
+                ),
+            ))
+        theme.apply(
+            figure,
+            title=f"{', '.join(month_names[m] for m in months)} {year}",
+            x="Time", y="Flow (MW, hourly average)", height=430,
+        )
+        # Six overlapping hourly series is a lot of ink; a range slider lets you
+        # zoom into a week without reloading anything.
+        figure.update_xaxes(rangeslider=dict(visible=True, thickness=0.06))
+        st.plotly_chart(figure, width="stretch")
 
         st.caption(f"{len(selection):,} hourly values shown.".replace(",", " "))
 
