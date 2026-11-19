@@ -44,15 +44,47 @@ with stl_tab:
         "wet and dry years shift it around."
     )
 
-    first, second, third = st.columns(3)
+    first, second, third, fourth = st.columns(4)
     period = first.number_input("Period (weeks)", 4, 104, 52, step=1,
                                 help="Length of one cycle; 52 for weekly data")
     seasonal = second.select_slider("Seasonal smoother", options=[7, 9, 11, 13, 15, 21, 25], value=7,
                                     help="Longer means the seasonal shape changes more slowly")
-    robust = third.toggle("Robust", value=True,
-                          help="Downweights odd weeks so one of them cannot drag the trend")
 
-    result = quality.stl_decomposition(series, period=int(period), seasonal=int(seasonal), robust=robust)
+    # The trend smoother has two constraints statsmodels enforces rather than
+    # clamps: the window must be odd, and it must be strictly longer than the
+    # period. A slider of free integers would therefore raise on about half its
+    # positions, so the options are built from the period instead - every other
+    # number above it, thinned so the control stays readable.
+    shortest = int(period) + 1 + (int(period) % 2)
+    span = list(range(shortest, int(period) * 4 + 1, 2))
+    trend_options = ["Auto"] + span[:: max(1, len(span) // 10)]
+    trend = third.select_slider(
+        "Trend smoother", options=trend_options, value="Auto",
+        help=(
+            "Width of the window the trend is smoothed over, in weeks. Longer means "
+            "a straighter trend and more left in the remainder. Auto lets statsmodels "
+            "pick, which lands near twice the period."
+        ),
+    )
+
+    robust = fourth.toggle("Robust", value=True,
+                           help="Downweights odd weeks so one of them cannot drag the trend")
+
+    result = quality.stl_decomposition(
+        series,
+        period=int(period),
+        seasonal=int(seasonal),
+        trend=None if trend == "Auto" else int(trend),
+        robust=robust,
+    )
+
+    if trend != "Auto":
+        st.caption(
+            f"Trend smoothed over **{trend} weeks**, against a period of {int(period)}. "
+            "Set it close to the period and the trend starts absorbing the season; "
+            "set it very long and the trend becomes a straight line with everything "
+            "else pushed into the remainder."
+        )
 
     panels = [
         (series, "Fill level", theme.DEEP),
